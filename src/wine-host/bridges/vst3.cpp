@@ -907,8 +907,11 @@ void Vst3Bridge::run() {
                 // The host will of course want to pass an X11 window ID for the
                 // plugin to embed itself in, so we'll have to translate this to
                 // a HWND
+                // Wayland-only hosts get a floating editor window, which is
+                // also a HWND from the plugin's point of view
                 const std::string type =
-                    request.type == Steinberg::kPlatformTypeX11EmbedWindowID
+                    request.type == Steinberg::kPlatformTypeX11EmbedWindowID ||
+                            request.type == kPlatformTypeWaylandSurfaceID
                         ? Steinberg::kPlatformTypeHWND
                         : request.type;
 
@@ -920,8 +923,14 @@ void Vst3Bridge::run() {
                 const auto& [instance, _] =
                     get_instance(request.owner_instance_id);
 
+                // With Wayland the parent is a `wl_surface` in the host's
+                // process that we cannot embed into, so the editor gets its
+                // own window instead
+                const bool floating =
+                    request.type == kPlatformTypeWaylandSurfaceID;
                 const std::string type =
-                    request.type == Steinberg::kPlatformTypeX11EmbedWindowID
+                    request.type == Steinberg::kPlatformTypeX11EmbedWindowID ||
+                            floating
                         ? Steinberg::kPlatformTypeHWND
                         : request.type;
 
@@ -974,12 +983,25 @@ void Vst3Bridge::run() {
                             }
                         };
 
-                        Editor& editor_instance = instance.editor.emplace(
-                            main_context_, config_, generic_logger_, x11_handle,
-                            std::move(resize_watchdog), initial_size);
+                        HWND editor_handle;
+                        if (floating) {
+                            editor_handle =
+                                instance.floating_editor
+                                    .emplace(plugin_path_.stem().string(),
+                                             initial_size)
+                                    .win32_handle();
+                        } else {
+                            editor_handle =
+                                instance.editor
+                                    .emplace(main_context_, config_,
+                                             generic_logger_, x11_handle,
+                                             std::move(resize_watchdog),
+                                             initial_size)
+                                    .win32_handle();
+                        }
                         const tresult result =
                             instance.plug_view_instance->plug_view->attached(
-                                editor_instance.win32_handle(), type.c_str());
+                                editor_handle, type.c_str());
 
                         // Set the window's initial size according to what the
                         // plugin reports. Otherwise get rid of the editor again
@@ -988,8 +1010,13 @@ void Vst3Bridge::run() {
                             Steinberg::ViewRect size{};
                             if (instance.plug_view_instance->plug_view->getSize(
                                     &size) == Steinberg::kResultOk) {
-                                instance.editor->resize(size.getWidth(),
-                                                        size.getHeight());
+                                if (instance.editor) {
+                                    instance.editor->resize(size.getWidth(),
+                                                            size.getHeight());
+                                } else {
+                                    instance.floating_editor->resize(
+                                        size.getWidth(), size.getHeight());
+                                }
                             }
 
                             // NOTE: There's zero reason why the window couldn't
@@ -998,7 +1025,11 @@ void Vst3Bridge::run() {
                             //       splendid idea to randomly dereference null
                             //       pointers when the window is already
                             //       visible. Thanks Waves.
-                            instance.editor->show();
+                            if (instance.editor) {
+                                instance.editor->show();
+                            } else {
+                                instance.floating_editor->show();
+                            }
 
 #ifdef WITH_ARA
                             {
@@ -1058,6 +1089,7 @@ void Vst3Bridge::run() {
 #endif
                         } else {
                             instance.editor.reset();
+                            instance.floating_editor.reset();
                         }
 
                         return result;
@@ -1075,6 +1107,7 @@ void Vst3Bridge::run() {
                         const tresult result =
                             instance.plug_view_instance->plug_view->removed();
                         instance.editor.reset();
+                        instance.floating_editor.reset();
 
                         return result;
                     })
@@ -1178,6 +1211,10 @@ void Vst3Bridge::run() {
                     if (instance.editor) {
                         instance.editor->resize(request.new_size.getWidth(),
                                                 request.new_size.getHeight());
+                    } else if (instance.floating_editor) {
+                        instance.floating_editor->resize(
+                            request.new_size.getWidth(),
+                            request.new_size.getHeight());
                     }
 
                     instance.last_set_size = request.new_size;
@@ -3114,6 +3151,10 @@ bool Vst3Bridge::resize_editor(size_t instance_id,
 
     if (instance.editor) {
         instance.editor->resize(new_size.getWidth(), new_size.getHeight());
+        return true;
+    } else if (instance.floating_editor) {
+        instance.floating_editor->resize(new_size.getWidth(),
+                                         new_size.getHeight());
         return true;
     } else {
         return false;

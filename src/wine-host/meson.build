@@ -71,6 +71,7 @@ host_sources = files(
   'bridges/group.cpp',
   'bridges/vst2.cpp',
   'editor.cpp',
+  'floating-editor.cpp',
   'host.cpp',
   'utils.cpp',
   'xdnd-proxy.cpp',

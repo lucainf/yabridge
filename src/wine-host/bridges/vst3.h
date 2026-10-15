@@ -37,6 +37,7 @@
 #include "../../common/configuration.h"
 #include "../../common/mutual-recursion.h"
 #include "../editor.h"
+#include "../floating-editor.h"
 #include "common.h"
 
 #ifdef WITH_ARA
@@ -219,6 +220,13 @@ struct Vst3PluginInstance {
      * exactly the same as how it works for VST2 plugins.
      */
     std::optional<Editor> editor;
+
+    /**
+     * This instance's editor if the host only supports Wayland. In that case
+     * the editor is shown in a separate window instead of being embedded, see
+     * `FloatingEditor`. At most one of `editor` and `floating_editor` is set.
+     */
+    std::optional<FloatingEditor> floating_editor;
 
     /**
      * The base object we cast from. This is upcasted from the object created by

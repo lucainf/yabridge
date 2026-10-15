@@ -16,6 +16,36 @@
 
 #include "plug-view-proxy.h"
 
+#include <string_view>
+
+#include <ghc/filesystem.hpp>
+
+namespace {
+
+constexpr std::string_view wayland_platform_type = "WaylandSurfaceID";
+
+/**
+ * Whether the host only supports Wayland for embedding plugin editors, so
+ * yabridge should accept `WaylandSurfaceID` and show the editor in a floating
+ * window on the Wine side (see `FloatingEditor`). That's currently only the
+ * Linux version of Studio One. Other hosts that support both Wayland and X11
+ * may query Wayland first, and they should keep falling back to X11 so the
+ * editor stays embedded.
+ */
+bool host_needs_floating_wayland_editor() {
+    static const bool needs_floating_editor = []() {
+        std::error_code error;
+        const ghc::filesystem::path host_path =
+            ghc::filesystem::read_symlink("/proc/self/exe", error);
+
+        return !error && host_path.filename().string() == "Studio One";
+    }();
+
+    return needs_floating_editor;
+}
+
+}  // namespace
+
 RunLoopTasks::RunLoopTasks(Steinberg::IPtr<Steinberg::IPlugFrame> plug_frame)
     : run_loop_(plug_frame) {
     FUNKNOWN_CTOR
@@ -112,6 +142,11 @@ Vst3PlugViewProxyImpl::queryInterface(const Steinberg::TUID _iid, void** obj) {
 
 tresult PLUGIN_API
 Vst3PlugViewProxyImpl::isPlatformTypeSupported(Steinberg::FIDString type) {
+    if (type && type == wayland_platform_type &&
+        !host_needs_floating_wayland_editor()) {
+        return Steinberg::kResultFalse;
+    }
+
     if (type) {
         // We'll swap the X11 window ID platform type string for the Win32 HWND
         // equivalent on the Wine side
@@ -128,7 +163,15 @@ Vst3PlugViewProxyImpl::isPlatformTypeSupported(Steinberg::FIDString type) {
 
 tresult PLUGIN_API Vst3PlugViewProxyImpl::attached(void* parent,
                                                    Steinberg::FIDString type) {
-    if (parent && type) {
+    // Wayland hosts may pass a null parent, as the surface is obtained through
+    // the plug frame instead. We don't use it anyway since the editor floats
+    // in its own window on Wayland, see `FloatingEditor` on the Wine side.
+    const bool is_wayland = type && type == wayland_platform_type;
+    if (is_wayland && !host_needs_floating_wayland_editor()) {
+        return Steinberg::kResultFalse;
+    }
+
+    if ((parent || is_wayland) && type) {
         // We will embed the Wine Win32 window into the X11 window provided by
         // the host
         return bridge_.send_mutually_recursive_message(YaPlugView::Attached{

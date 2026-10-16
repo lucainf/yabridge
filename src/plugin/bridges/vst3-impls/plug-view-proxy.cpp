@@ -20,6 +20,8 @@
 
 #include <ghc/filesystem.hpp>
 
+#include "../../../common/daw-quirks.h"
+
 namespace {
 
 constexpr std::string_view wayland_platform_type = "WaylandSurfaceID";
@@ -27,9 +29,9 @@ constexpr std::string_view wayland_platform_type = "WaylandSurfaceID";
 /**
  * Whether the host only supports Wayland for embedding plugin editors, so
  * yabridge should accept `WaylandSurfaceID` and show the editor in a floating
- * window on the Wine side (see `FloatingEditor`). That's currently only the
- * Linux version of Studio One. Other hosts that support both Wayland and X11
- * may query Wayland first, and they should keep falling back to X11 so the
+ * window on the Wine side (see `FloatingEditor`). These hosts are marked as
+ * `wayland_only` in `daw_quirks`. Other hosts that support both Wayland and
+ * X11 may query Wayland first, and they should keep falling back to X11 so the
  * editor stays embedded.
  */
 bool host_needs_floating_wayland_editor() {
@@ -37,8 +39,13 @@ bool host_needs_floating_wayland_editor() {
         std::error_code error;
         const ghc::filesystem::path host_path =
             ghc::filesystem::read_symlink("/proc/self/exe", error);
+        if (error) {
+            return false;
+        }
 
-        return !error && host_path.filename().string() == "Studio One";
+        const std::optional<DawQuirk> daw =
+            find_daw_quirk(host_path.filename().string());
+        return daw && daw->wayland_only;
     }();
 
     return needs_floating_editor;

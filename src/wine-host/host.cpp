@@ -135,6 +135,11 @@ int YABRIDGE_EXPORT
         const std::string socket_endpoint_path(argv[3]);
         const pid_t parent_pid = std::stoi(argv[4]);
 
+        if (const auto image_path = apply_host_process_name_override()) {
+            std::cerr << "Presenting this process as '" << *image_path
+                      << "' to the plugin" << std::endl;
+        }
+
         std::cerr << "Preparing to load " << plugin_type_to_string(plugin_type)
                   << " plugin at '" << plugin_location << "'" << std::endl;
 

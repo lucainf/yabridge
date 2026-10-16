@@ -87,12 +87,17 @@ class HostProcess {
      *   use pipes or to redirect the output to a file instead.
      * @param plugin_info Information about the plugin, used to determine the
      *   plugin's Wine prefix.
+     * @param host_process_name If set, the Wine plugin host presents itself
+     *   to the plugin as this executable, see
+     *   `app_quirks::host_process_name()`.
      */
-    Process::Handle launch_host(const ghc::filesystem::path& host_path,
-                                std::initializer_list<std::string> args,
-                                Logger& logger,
-                                const Configuration& config,
-                                const PluginInfo& plugin_info);
+    Process::Handle launch_host(
+        const ghc::filesystem::path& host_path,
+        std::initializer_list<std::string> args,
+        Logger& logger,
+        const Configuration& config,
+        const PluginInfo& plugin_info,
+        const std::optional<std::string>& host_process_name = std::nullopt);
 
     /**
      * The associated sockets for the plugin we're hosting. This is used to

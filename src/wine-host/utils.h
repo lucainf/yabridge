@@ -368,3 +368,22 @@ class MainContext {
      */
     Win32Thread watchdog_handler_;
 };
+
+/**
+ * If `YABRIDGE_HOST_PROCESS_NAME` is set, make this process present itself as
+ * another executable to code running inside of it. The value is either an
+ * executable name (e.g. `Studio One.exe`), which replaces the file name of
+ * this process' image path, or an absolute Unix path to an existing
+ * executable, which then becomes the image path. This rewrites the image path
+ * and command line in the PEB and the main module's entry in the loader's
+ * module list, which is what `GetModuleFileNameW(nullptr)`,
+ * `GetModuleBaseNameW()` and `GetCommandLineW()` read. The environment
+ * variable is removed afterwards.
+ *
+ * This is used for plugins that identify the DAW through the process they're
+ * loaded into, see `app_quirks::host_process_name()` on the plugin side. This
+ * has to be called before the plugin is loaded.
+ *
+ * @return The new image path if it was applied, for logging.
+ */
+std::optional<std::string> apply_host_process_name_override();

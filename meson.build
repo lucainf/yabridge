@@ -25,6 +25,7 @@ with_clap = get_option('clap')
 with_winedbg = get_option('winedbg')
 with_vst3 = get_option('vst3')
 with_ara = get_option('ara')
+with_app_quirks = get_option('app_quirks')
 
 #
 # Compiler flags
@@ -132,6 +133,10 @@ endif
 
 if with_vst3
   compiler_options += '-DWITH_VST3'
+endif
+
+if with_app_quirks
+  compiler_options += '-DWITH_APP_QUIRKS'
 endif
 
 if with_ara
@@ -310,6 +315,9 @@ subdir('src/common/config')
 subdir('src/chainloader')
 subdir('src/plugin')
 subdir('src/wine-host')
+if with_app_quirks
+  subdir('tools/quirk-stubs')
+endif
 
 shared_library(
   vst2_plugin_name,

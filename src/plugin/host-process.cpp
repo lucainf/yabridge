@@ -16,6 +16,10 @@
 
 #include "host-process.h"
 
+#ifdef WITH_APP_QUIRKS
+#include "app-quirks.h"
+#endif
+
 #include <asio/read_until.hpp>
 
 #include "../common/utils.h"
@@ -30,7 +34,8 @@ Process::Handle HostProcess::launch_host(
     std::initializer_list<std::string> args,
     Logger& logger,
     const Configuration& config,
-    const PluginInfo& plugin_info) {
+    const PluginInfo& plugin_info,
+    const std::optional<std::string>& host_process_name) {
 #ifdef WITH_WINEDBG
     // This is set up for KDE Plasma. Other desktop environments and window
     // managers require some slight modifications to spawn a detached terminal
@@ -56,7 +61,11 @@ Process::Handle HostProcess::launch_host(
         child.arg(arg);
     }
 
-    child.environment(plugin_info.create_host_env());
+    ProcessEnvironment env = plugin_info.create_host_env();
+    if (host_process_name) {
+        env.insert("YABRIDGE_HOST_PROCESS_NAME", *host_process_name);
+    }
+    child.environment(env);
     Process::Handle child_handle = std::visit(
         overload{
             [](Process::Handle handle) -> Process::Handle { return handle; },
@@ -129,7 +138,13 @@ IndividualHost::IndividualHost(asio::io_context& io_context,
           },
           logger,
           config,
-          plugin_info)) {
+          plugin_info,
+#ifdef WITH_APP_QUIRKS
+          app_quirks::host_process_name(plugin_info, host_path_, logger)
+#else
+          std::nullopt
+#endif
+              )) {
 #ifdef WITH_WINEDBG
     if (plugin_info.windows_plugin_path_.string().find('"') !=
         std::string::npos) {

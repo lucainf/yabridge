@@ -16,6 +16,8 @@
 
 #include "utils.h"
 
+#include <winternl.h>
+
 #include <iostream>
 
 #include "bridges/common.h"
@@ -189,4 +191,123 @@ void MainContext::async_handle_watchdog_timer(
 
         async_handle_watchdog_timer(30s);
     });
+}
+
+// Exported by Wine's kernel32, converts a Unix path to a DOS path allocated on
+// the process heap
+extern "C" WCHAR* CDECL wine_get_dos_file_name(LPCSTR unix_path);
+
+namespace {
+
+// NOTE: Winelib code is built with `-fshort-wchar`, but libstdc++'s
+//       `std::wstring` is compiled with a 4-byte `wchar_t`, so using it here
+//       corrupts memory. `std::u16string` has the same layout as a `WCHAR`
+//       string without that problem.
+static_assert(sizeof(WCHAR) == sizeof(char16_t));
+
+std::u16string to_u16string(const UNICODE_STRING& string) {
+    return std::u16string(reinterpret_cast<const char16_t*>(string.Buffer),
+                          string.Length / sizeof(WCHAR));
+}
+
+std::string to_utf8(const std::u16string& string) {
+    std::string result(string.size() * 3, '\0');
+    result.resize(WideCharToMultiByte(
+        CP_UTF8, 0, reinterpret_cast<const WCHAR*>(string.data()),
+        static_cast<int>(string.size()), result.data(),
+        static_cast<int>(result.size()), nullptr, nullptr));
+
+    return result;
+}
+
+/**
+ * Allocate a `UNICODE_STRING` for the PEB that lives for the rest of the
+ * process' lifetime.
+ */
+UNICODE_STRING make_persistent_unicode_string(const std::u16string& value) {
+    const size_t bytes = (value.size() + 1) * sizeof(WCHAR);
+    auto* buffer = static_cast<WCHAR*>(
+        HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, bytes));
+    std::copy(value.begin(), value.end(), reinterpret_cast<char16_t*>(buffer));
+
+    UNICODE_STRING result{};
+    result.Length = static_cast<USHORT>(value.size() * sizeof(WCHAR));
+    result.MaximumLength = static_cast<USHORT>(bytes);
+    result.Buffer = buffer;
+
+    return result;
+}
+
+/**
+ * The part of a Windows path after the last separator.
+ */
+std::u16string file_name(const std::u16string& path) {
+    const size_t separator = path.find_last_of(u"\\/");
+    return separator == std::u16string::npos ? path
+                                             : path.substr(separator + 1);
+}
+
+}  // namespace
+
+std::optional<std::string> apply_host_process_name_override() {
+    const auto* variable =
+        reinterpret_cast<const WCHAR*>(u"YABRIDGE_HOST_PROCESS_NAME");
+    WCHAR value_buffer[MAX_PATH];
+    const DWORD value_length =
+        GetEnvironmentVariableW(variable, value_buffer, MAX_PATH);
+    if (value_length == 0 || value_length >= MAX_PATH) {
+        return std::nullopt;
+    }
+    SetEnvironmentVariableW(variable, nullptr);
+    const std::u16string value(reinterpret_cast<const char16_t*>(value_buffer),
+                               value_length);
+
+    PEB* peb = NtCurrentTeb()->Peb;
+    RTL_USER_PROCESS_PARAMETERS* parameters = peb->ProcessParameters;
+
+    // Either use an existing executable as the image path, or keep the current
+    // directory and only replace the file name
+    std::u16string image_path;
+    if (value.starts_with(u"/")) {
+        WCHAR* dos_path = wine_get_dos_file_name(to_utf8(value).c_str());
+        if (!dos_path) {
+            return std::nullopt;
+        }
+        image_path = reinterpret_cast<const char16_t*>(dos_path);
+        HeapFree(GetProcessHeap(), 0, dos_path);
+    } else {
+        const std::u16string current = to_u16string(parameters->ImagePathName);
+        const size_t separator = current.find_last_of(u"\\/");
+        image_path = separator == std::u16string::npos
+                         ? value
+                         : current.substr(0, separator + 1) + value;
+    }
+    parameters->ImagePathName = make_persistent_unicode_string(image_path);
+
+    // The command line starts with the (possibly quoted) image path
+    const std::u16string command_line = to_u16string(parameters->CommandLine);
+    size_t arguments_start;
+    if (!command_line.empty() && command_line[0] == u'"') {
+        const size_t closing_quote = command_line.find(u'"', 1);
+        arguments_start = closing_quote == std::u16string::npos
+                              ? command_line.size()
+                              : closing_quote + 1;
+    } else {
+        arguments_start =
+            std::min(command_line.find(u' '), command_line.size());
+    }
+    parameters->CommandLine = make_persistent_unicode_string(
+        u"\"" + image_path + u"\"" + command_line.substr(arguments_start));
+
+    // The first entry in the load order module list is the main executable
+    LIST_ENTRY* main_module_link = peb->LdrData->InLoadOrderModuleList.Flink;
+    if (main_module_link != &peb->LdrData->InLoadOrderModuleList) {
+        auto* main_module = CONTAINING_RECORD(
+            main_module_link, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+        main_module->FullDllName = make_persistent_unicode_string(image_path);
+        main_module->BaseDllName =
+            make_persistent_unicode_string(file_name(image_path));
+    }
+
+    return to_utf8(image_path);
 }

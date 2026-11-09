@@ -16,6 +16,8 @@
 
 #include "floating-editor.h"
 
+#include <string>
+
 namespace {
 
 constexpr wchar_t floating_editor_class_name[] = L"yabridge floating editor";
@@ -75,18 +77,24 @@ FloatingEditor::FloatingEditor(const std::string& title,
     const Size size = initial_size.value_or(Size(640, 480));
     const SIZE outer_size = outer_window_size(size.width, size.height);
 
-    std::wstring wide_title(title.begin(), title.end());
+    // NOTE: Winelib code is built with `-fshort-wchar` while libstdc++'s
+    //       `std::wstring` uses a 4-byte `wchar_t`, so we can't use that here.
+    //       See `to_u16string()` in `utils.cpp`.
+    static_assert(sizeof(WCHAR) == sizeof(char16_t));
+    std::u16string wide_title;
     if (const int length = MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1,
                                                nullptr, 0);
         length > 0) {
         wide_title.resize(length);
-        MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1, wide_title.data(),
+        MultiByteToWideChar(CP_UTF8, 0, title.c_str(), -1,
+                            reinterpret_cast<WCHAR*>(wide_title.data()),
                             length);
         wide_title.resize(length - 1);
     }
 
     window_ = CreateWindowExW(floating_editor_ex_style,
-                              floating_editor_class_name, wide_title.c_str(),
+                              floating_editor_class_name,
+                              reinterpret_cast<const WCHAR*>(wide_title.c_str()),
                               floating_editor_style, CW_USEDEFAULT,
                               CW_USEDEFAULT, outer_size.cx, outer_size.cy,
                               nullptr, nullptr, GetModuleHandleW(nullptr),

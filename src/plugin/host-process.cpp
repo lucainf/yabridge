@@ -185,6 +185,11 @@ GroupHost::GroupHost(asio::io_context& io_context,
       plugin_info_(plugin_info),
       host_path_(find_plugin_host(plugin_info.native_library_path_,
                                   plugin_info.plugin_arch_)) {
+#ifdef WITH_APP_QUIRKS
+    app_quirks::warn_if_unavailable_in_group(plugin_info, *config.group,
+                                             logger);
+#endif
+
     // When using plugin groups, we'll first try to connect to an existing group
     // host process and ask it to host our plugin. If no such process exists,
     // then we'll start a new process. In the event that multiple yabridge

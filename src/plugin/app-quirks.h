@@ -46,6 +46,9 @@ namespace app_quirks {
  * it's just the DAW's executable name with an `.exe` extension (e.g.
  * `Studio One.exe`). Returns `std::nullopt` for all other plugins.
  *
+ * This only applies to individually hosted plugins, see
+ * `warn_if_unavailable_in_group()`.
+ *
  * @param plugin_info Information about the plugin being bridged.
  * @param host_path The path to the Wine plugin host's `.exe` launcher.
  * @param logger Used to log when the quirk is applied.
@@ -54,5 +57,19 @@ std::optional<std::string> host_process_name(
     const PluginInfo& plugin_info,
     const ghc::filesystem::path& host_path,
     Logger& logger);
+
+/**
+ * `host_process_name()` only works for individually hosted plugins, since a
+ * group host process is shared between all plugins in the group and its
+ * process name can't be changed per plugin. If this plugin would need it, log
+ * a warning so it's clear why the workaround isn't applied.
+ *
+ * @param plugin_info Information about the plugin being bridged.
+ * @param group The name of the plugin group the plugin is hosted in.
+ * @param logger Used to log the warning.
+ */
+void warn_if_unavailable_in_group(const PluginInfo& plugin_info,
+                                  const std::string& group,
+                                  Logger& logger);
 
 }  // namespace app_quirks

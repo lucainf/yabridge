@@ -30,7 +30,7 @@ option(
   'app_quirks',
   type : 'boolean',
   value : false,
-  description : 'Enable workarounds for specific plugins and hosts, such as running the Wine plugin host under the DAW\'s process name for plugins that check it (Celemony Tonalic).'
+  description : 'Enable workarounds for specific plugins and hosts, such as running the Wine plugin host under the DAW\'s process name for plugins that check it (Celemony Tonalic). This does not apply to plugins in plugin groups.'
 )
 
 option(

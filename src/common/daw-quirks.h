@@ -20,6 +20,8 @@
 #include <optional>
 #include <string_view>
 
+#include <unistd.h>
+
 /**
  * A DAW that needs special handling. This is the single source of truth for
  * detecting these DAWs on the plugin side, and for `tools/quirk-stubs`, which
@@ -106,4 +108,27 @@ inline std::optional<DawQuirk> find_daw_quirk(
     }
 
     return std::nullopt;
+}
+
+/**
+ * Find the quirk entry for the DAW this process belongs to, by the file name of
+ * `/proc/self/exe`. The result is computed once and cached, since the
+ * executable can't change.
+ */
+inline std::optional<DawQuirk> detect_current_daw() {
+    static const std::optional<DawQuirk> daw = []() -> std::optional<DawQuirk> {
+        char path[4096];
+        const ssize_t length = readlink("/proc/self/exe", path, sizeof(path));
+        if (length <= 0 || static_cast<size_t>(length) >= sizeof(path)) {
+            return std::nullopt;
+        }
+
+        const std::string_view exe(path, static_cast<size_t>(length));
+        const size_t last_slash = exe.rfind('/');
+        return find_daw_quirk(last_slash == std::string_view::npos
+                                  ? exe
+                                  : exe.substr(last_slash + 1));
+    }();
+
+    return daw;
 }

@@ -18,8 +18,6 @@
 
 #include <string_view>
 
-#include <ghc/filesystem.hpp>
-
 #include "../../../common/daw-quirks.h"
 
 namespace {
@@ -35,20 +33,8 @@ constexpr std::string_view wayland_platform_type = "WaylandSurfaceID";
  * editor stays embedded.
  */
 bool host_needs_floating_wayland_editor() {
-    static const bool needs_floating_editor = []() {
-        std::error_code error;
-        const ghc::filesystem::path host_path =
-            ghc::filesystem::read_symlink("/proc/self/exe", error);
-        if (error) {
-            return false;
-        }
-
-        const std::optional<DawQuirk> daw =
-            find_daw_quirk(host_path.filename().string());
-        return daw && daw->wayland_only;
-    }();
-
-    return needs_floating_editor;
+    const std::optional<DawQuirk> daw = detect_current_daw();
+    return daw && daw->wayland_only;
 }
 
 }  // namespace
